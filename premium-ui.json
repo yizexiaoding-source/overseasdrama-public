@@ -1,0 +1,13 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["app"],
+  "locale": "zh-CN",
+  "ownership": {
+    "Select/Listbox": "native",
+    "Date": "native"
+  },
+  "requiredCommands": ["build"],
+  "commands": {
+    "build": "npm run build"
+  }
+}
