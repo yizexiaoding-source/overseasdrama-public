@@ -98,3 +98,6 @@ __pycache__/
 /.codex-stream-test.txt
 /package-lock.outer-before-flatten.json
 /pb_data/data.seed.db
+
+.vercel
+.env*
