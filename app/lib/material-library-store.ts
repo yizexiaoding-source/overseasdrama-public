@@ -56,6 +56,8 @@ export type PrefaceScriptVersion = {
 export type NarrationScriptVersion = PrefaceScriptVersion;
 
 export type PromptFissionPlan = {
+  failures?: string[];
+  rawResult?: string;
   id: string;
   sourceAssetId: string;
   preservedMechanisms: string[];
@@ -278,6 +280,7 @@ export async function createPromptFission(
   settings?: PromptFissionSettings,
 ): Promise<PromptFissionPlan> {
   const response = await fetch("/api/prompt-fission", {
+    signal: AbortSignal.timeout(540_000),
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ assetId, preservedMechanisms, variableDimensions, settings }),

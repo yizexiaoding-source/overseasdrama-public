@@ -1,0 +1,61 @@
+import assert from "node:assert/strict";
+
+// Set LUMINA_PLAYWRIGHT_MODULE to an installed Playwright module URL when it is not a project dependency.
+const { chromium } = await import(process.env.LUMINA_PLAYWRIGHT_MODULE || "playwright");
+const browser = await chromium.launch({ headless: true, channel: "msedge" });
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const faults = [];
+  page.on("pageerror", (error) => faults.push(error.message));
+  let complete;
+  const pending = [];
+  await page.route("**/api/preface-creative/replication-script*", async (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { records: [] } });
+    const body = route.request().postDataJSON();
+    pending.push(body.candidateIndex);
+    await new Promise((resolve) => { complete = async (status, result) => { await route.fulfill({ status, json: result }); resolve(); }; });
+  });
+  await page.goto("http://localhost:3000/", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /AI前贴创意/ }).click();
+  await page.getByRole("button", { name: "02 前贴迭代复刻" }).click();
+  await page.getByRole("button", { name: "立即使用", exact: true }).first().click();
+  await page.getByRole("button", { name: "恢复最近一次候选与脚本" }).click();
+  const cards = page.locator("article").filter({ has: page.getByRole("button", { name: "生成脚本与分镜", exact: true }) });
+  assert.equal(await cards.count(), 15);
+  const first = cards.first();
+  await first.getByRole("button", { name: "生成脚本与分镜", exact: true }).click();
+  const busy = page.getByRole("button", { name: "正在生成脚本与分镜…", exact: true });
+  await busy.waitFor();
+  assert.equal(await busy.isDisabled(), true);
+  assert.equal(await busy.getAttribute("aria-busy"), "true");
+  const spinner = busy.locator("i");
+  const before = await spinner.evaluate((element) => getComputedStyle(element).transform);
+  await page.waitForTimeout(180);
+  const after = await spinner.evaluate((element) => getComputedStyle(element).transform);
+  assert.notEqual(before, after, "Spinner must actually rotate while request is pending");
+  assert.equal(pending.length, 1);
+  await complete(500, { message: "测试失败" });
+  await page.getByRole("alert").filter({ hasText: "测试失败" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "正在生成脚本与分镜…", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "生成脚本与分镜", exact: true }).first().click();
+  await page.waitForFunction(() => document.querySelector('button[aria-busy="true"]'));
+  while (pending.length < 2) await page.waitForTimeout(30);
+  await complete(200, { script: "完整测试脚本", storyboardScript: "完整测试分镜", version: 1, createdAt: "2026-10-15T04:00:00Z" });
+  await page.getByText("完整测试脚本", { exact: true }).waitFor();
+  await page.getByText("完整测试分镜", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("alert").filter({ hasText: "测试失败" }).count(), 0);
+  const checkboxes = page.getByRole("checkbox");
+  await checkboxes.nth(1).check(); await checkboxes.nth(2).check();
+  await page.getByRole("button", { name: "批量生成脚本与分镜", exact: true }).click();
+  while (pending.length < 3) await page.waitForTimeout(30);
+  await complete(500, { message: "批量首条测试失败" });
+  while (pending.length < 4) await page.waitForTimeout(30);
+  await complete(200, { script: "批量第二条脚本", storyboardScript: "批量第二条分镜", version: 2, createdAt: "2026-10-15T04:01:00Z" });
+  await page.getByText("批量第二条分镜", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "批量生成脚本与分镜", exact: true }).waitFor();
+  await page.getByText("完整测试脚本", { exact: true }).waitFor();
+  assert.deepEqual(pending, [0, 0, 0, 1]);
+  assert.deepEqual(faults, []);
+  if (process.env.LUMINA_TEST_SCREENSHOT) await page.screenshot({ path: process.env.LUMINA_TEST_SCREENSHOT, fullPage: false });
+  console.log("PASS: 15 cards; spinner rotates; failure resets; retry shows script and storyboard; batch continues after failure; previous result retained; no browser errors.");
+} finally { await browser.close(); }

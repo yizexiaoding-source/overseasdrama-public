@@ -45,6 +45,7 @@ export type PromptFissionHandoff = {
 };
 
 export type PromptFissionResult = {
+  failures: string[];
   sourceDiagnosis: PromptFissionSourceDiagnosis;
   baseline: PromptFissionBaseline;
   variants: PromptFissionVariant[];
@@ -66,10 +67,15 @@ const REQUIRED_STORY_ENGINES = new Set([
   "double_misdirection",
 ]);
 
+export function creativeMechanisms(values: string[]) {
+  return strings(values).filter((value) => !/人工确认|人工复核|证据不足/.test(value));
+}
+
 export function validatePromptFissionResult(
   value: unknown,
   lockedMechanisms: string[],
 ): PromptFissionResult {
+  const failures: string[] = [];
   const source = value && typeof value === "object"
     ? value as Record<string, unknown>
     : {};
@@ -83,7 +89,7 @@ export function validatePromptFissionResult(
     lockedElements: strings(rawDiagnosis.lockedElements),
   };
   if (!sourceDiagnosis.summary || !sourceDiagnosis.hookQuestion || !sourceDiagnosis.narrativePromise || !sourceDiagnosis.lockedElements.length) {
-    throw new Error("裂变方案缺少原前贴钩子基因诊断");
+    failures.push("原前贴钩子基因诊断不完整");
   }
 
   const rawBaseline = source.baseline && typeof source.baseline === "object"
@@ -96,36 +102,35 @@ export function validatePromptFissionResult(
     lockedElements: strings(rawBaseline.lockedElements),
   };
   if (!baseline.prompt || baseline.storyboard.length < 3 || baseline.storyboard.length > 8 || !baseline.lockedElements.length) {
-    throw new Error("V0 必须包含完整提示词、3 至 8 个连续分镜和锁定项");
+    failures.push("V0 部分说明不完整，保留现有内容供预览");
   }
 
-  if (!Array.isArray(source.variants) || source.variants.length !== 15) {
-    throw new Error("提示词裂变必须完整返回五个故事引擎的十五组分支方案");
-  }
-  const required = strings(lockedMechanisms);
+  const rawVariants = Array.isArray(source.variants) ? source.variants : [];
+  const required = creativeMechanisms(lockedMechanisms);
   const seenBranches = new Set<string>();
-  const variants = source.variants.map((raw, index) => {
+  const variants = rawVariants.flatMap((raw, index) => {
+    try {
     const item = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
     const storyboard = strings(item.storyboard);
     if (storyboard.length < 3 || storyboard.length > 8) {
-      throw new Error(`第 ${index + 1} 组方案必须包含 3 至 8 个分镜步骤`);
+      failures.push(`第 ${index + 1} 组方案分镜数量不在建议范围，已保留内容`);
     }
     const preservedMechanisms = strings(item.preservedMechanisms);
     const missing = required.find((mechanism) => !preservedMechanisms.includes(mechanism));
-    if (missing) throw new Error(`第 ${index + 1} 组方案未保留锁定机制：${missing}`);
+    if (missing) failures.push(`第 ${index + 1} 组方案需复核锁定机制：${missing}`);
     const branch = String(item.branch || "").trim().toUpperCase();
-    if (!/^[ABC]$/.test(branch)) throw new Error(`第 ${index + 1} 组方案缺少 A/B/C 分支标识`);
+    if (!/^[ABC]$/.test(branch)) failures.push(`第 ${index + 1} 组方案分支标识待补充`);
     const storyEngine = String(item.storyEngine || "").trim();
     const branchKey = `${storyEngine}:${branch}`;
-    if (!REQUIRED_STORY_ENGINES.has(storyEngine) || seenBranches.has(branchKey)) throw new Error(`第 ${index + 1} 组方案的故事引擎与分支重复或缺失`);
-    seenBranches.add(branchKey);
+    if (!REQUIRED_STORY_ENGINES.has(storyEngine) || seenBranches.has(branchKey)) failures.push(`第 ${index + 1} 组方案分支需复核，已保留内容`);
+
     const variant: PromptFissionVariant = {
       title: String(item.title || `裂变方案 ${index + 1}`).trim(),
       storyEngine,
       branch: branch as "A" | "B" | "C",
       branchLabel: String(item.branchLabel || "").trim(),
       synopsis: String(item.synopsis || "").trim(),
-      prompt: String(item.prompt || "").trim(),
+      prompt: String(item.prompt || storyboard.join("\n")).trim(),
       storyboard,
       preservedMechanisms,
       changedContent: strings(item.changedContent),
@@ -138,13 +143,17 @@ export function validatePromptFissionResult(
       creativeAdditions: strings(item.creativeAdditions),
     };
     if (!variant.prompt || !variant.difference || !variant.changedContent.length || !variant.changedDimension || !variant.branchLabel || !variant.synopsis) {
-      throw new Error(`第 ${index + 1} 组方案缺少故事摘要、分支说明、提示词或差异说明`);
+      failures.push(`第 ${index + 1} 组方案部分说明缺失，已保留提示词`);
     }
-    return variant;
+    if (!variant.prompt) throw new Error(`第 ${index + 1} 组方案没有可展示的提示词或分镜`);
+    seenBranches.add(branchKey);
+    return [variant];
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "方案校验失败");
+      return [];
+    }
   });
-  if (new Set(variants.map((item) => item.storyEngine)).size !== REQUIRED_STORY_ENGINES.size || variants.some((item) => variants.filter((candidate) => candidate.storyEngine === item.storyEngine).length !== 3)) {
-    throw new Error("十五组方案必须覆盖五个故事引擎，且每个故事引擎各有 A/B/C 三个分支");
-  }
+  for (const engine of REQUIRED_STORY_ENGINES) { for (const branch of ["A", "B", "C"]) { if (!seenBranches.has(`${engine}:${branch}`)) failures.push(`${engine} / ${branch}：未生成有效方案`); } }
   const targetMapping = Array.isArray(source.targetMapping)
     ? source.targetMapping.map((raw) => raw && typeof raw === "object" ? raw as Record<string, unknown> : {}).map((item) => ({
       slot: String(item.slot || "").trim(),
@@ -161,5 +170,5 @@ export function validatePromptFissionResult(
     bridgeAudio: String(rawHandoff.bridgeAudio || "").trim(),
     handoffQuestion: String(rawHandoff.handoffQuestion || "").trim(),
   } : undefined;
-  return { sourceDiagnosis, baseline, variants, targetMapping, handoff };
+  return { sourceDiagnosis, baseline, variants, targetMapping, handoff, failures };
 }

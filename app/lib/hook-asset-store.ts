@@ -78,7 +78,20 @@ const claimText = (value: unknown) => typeof value === "string" ? text(value) : 
 
 async function pbJson(path: string, init?: RequestInit) {
   const response = await fetch(`${PB_URL}${path}`, { cache: "no-store", ...init });
-  if (!response.ok) throw new Error(`钩子资产请求失败（HTTP ${response.status}）`);
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const payload = object(await response.json());
+      detail = text(payload.message, text(payload.error));
+    } catch {
+      // Keep the status-only fallback when PocketBase returns a non-JSON body.
+    }
+    throw new Error(
+      detail
+        ? `钩子资产请求失败：${detail}（HTTP ${response.status}）`
+        : `钩子资产请求失败（HTTP ${response.status}）`,
+    );
+  }
   return response.json();
 }
 
@@ -191,7 +204,6 @@ export async function getHookAsset(id: string, signal?: AbortSignal): Promise<Ho
 }
 
 export async function reviewHookBoundary(id: string, status: "approved" | "rejected", note: string, range?: { start: number; end: number }): Promise<HookAsset> {
-  if (!note.trim()) throw new Error("请填写边界复核依据");
   await pbJson(`/api/lumina/hooks/${encodeURIComponent(id)}/review`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ decision: status === "approved" ? "approve_boundaries" : "reject_boundaries", note: note.trim(), ...(range ? { start_seconds: range.start, end_seconds: range.end } : {}) }),

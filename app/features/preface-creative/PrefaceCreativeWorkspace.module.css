@@ -53,7 +53,7 @@
 .ideaCard details p { margin-top: 5px; }
 .ideaCard footer { display: flex; gap: 8px; padding-top: 4px; }
 .ideaCard footer button { min-height: 30px; border: 1px solid #d5e1ee; border-radius: 6px; background: #fff; color: #1769e0; padding: 0 9px; font-size: 10px; cursor: pointer; }
-.branchGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.branchGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
 .branchCard { display: grid; gap: 8px; padding: 13px; }
 .branchCard header span { color: #1769e0; font-size: 11px; font-weight: 800; }
 .branchCard h3 { margin: 0; font-size: 13px; color: #304965; line-height: 1.45; }
@@ -236,7 +236,7 @@
 .secondaryButton { min-height: 32px; border: 1px solid #cbd9e8; border-radius: 7px; background: #fff; color: #1769e0; padding: 0 11px; font-size: 10px; cursor: pointer; }
 .generationActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .streamProgress { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 9px 0 0; color: #607a95; font-size: 10px; line-height: 1.5; }
-.streamSpinner { width: 11px; height: 11px; flex: 0 0 11px; border: 2px solid #c9dbef; border-top-color: #1769e0; border-radius: 50%; animation: lumina-spin .8s linear infinite; }
+.streamSpinner { display: inline-block; width: 11px; height: 11px; flex: 0 0 11px; margin-right: 5px; border: 2px solid #c9dbef; border-top-color: #1769e0; border-radius: 50%; vertical-align: -2px; animation: lumina-spin .8s linear infinite; }
 .streamSpinner + b { color: #1769e0; }
 @keyframes lumina-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .streamSpinner { animation: none; border-top-color: #1769e0; } }
@@ -493,3 +493,9 @@
 @media (max-width: 900px) { .stepper { grid-template-columns: 1fr; } .stepper button { border-right: 0; border-bottom: 1px solid #e7edf4; min-height: 44px; } .briefGrid, .tagAxisGrid, .candidateGrid, .scriptLayout, .scriptArchiveLayout, .basisGrid, .analysisGrid, .editAnalysis, .conflictList, .contractFields, .directionCards, .advancedHookGrid, .candidateCompare, .hookDirectionGrid, .hookAxisGrid, .hookPairGrid, .endingChoice { grid-template-columns: 1fr; } .candidateCompare article { border-right: 0; border-bottom: 1px solid #dce8f4; } .quickPreview > div { grid-template-columns: repeat(2, minmax(0, 1fr)); } .timeline { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px) { .hierarchySelector { grid-template-columns: 1fr; } .categoryRail { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .stage { padding: 15px; } .stageHeader, .stageFooter { display: grid; } .strategyColumns { display: none; } .strategyList > button { grid-template-columns: 1fr 1fr; } .strategyList > button strong { grid-column: 1 / -1; } .timeline { grid-template-columns: 1fr; } }
+.replicationBatchBar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px; background: #f5f8fc; border-radius: 8px; font-size: 12px; }
+.replicationBatchBar > button { margin-left: auto; }
+.replicationBatchBar label, .cardActions label { display: inline-flex; gap: 6px; align-items: center; }
+.replicationDelivery { padding: 10px; border: 1px solid #c9def5; border-radius: 8px; background: #f7fbff; }
+.replicationDelivery header { margin-top: 12px; align-items: center; color: #31597f; }
+.replicationDelivery button { border: 1px solid #c9def5; border-radius: 5px; color: #1769e0; background: white; padding: 5px 8px; cursor: pointer; }

@@ -477,13 +477,12 @@ routerAdd("POST", "/api/lumina/prompt-fission-plans", (e) => {
   const mechanisms = Array.isArray(body.preserved_mechanisms) ? body.preserved_mechanisms.map(String).filter(Boolean) : [];
   const dimensions = Array.isArray(body.variable_dimensions) ? body.variable_dimensions.map(String).filter(Boolean) : [];
   const variants = Array.isArray(body.variants) ? body.variants : [];
-  if (!sourceAssetId || !mechanisms.length || !dimensions.length || variants.length !== 5) throw new BadRequestError("invalid prompt fission plan");
+  if (!sourceAssetId || variants.length > 15) throw new BadRequestError("invalid prompt fission plan");
   const asset = e.app.findRecordById("material_library_assets", sourceAssetId);
   if (asset.getString("asset_kind") !== "ai_preface") throw new BadRequestError("source asset must be an AI preface");
   for (const variant of variants) {
-    const preserved = variant && Array.isArray(variant.preservedMechanisms) ? variant.preservedMechanisms.map(String) : [];
     const storyboard = variant && Array.isArray(variant.storyboard) ? variant.storyboard : [];
-    if (storyboard.length < 3 || storyboard.length > 8 || mechanisms.some((item) => !preserved.includes(item))) throw new BadRequestError("prompt fission variant violates locked mechanisms");
+    if (!variant || (!String(variant.prompt || "").trim() && !storyboard.length)) throw new BadRequestError("prompt fission variant has no content");
   }
   const collection = e.app.findCollectionByNameOrId("prompt_fission_plans");
   const record = new Record(collection);
@@ -494,7 +493,7 @@ routerAdd("POST", "/api/lumina/prompt-fission-plans", (e) => {
   record.set("model", String(body.model || "").slice(0, 200));
   record.set("schema_version", String(body.schema_version || "prompt-fission-v1").slice(0, 40));
   record.set("status", "succeeded");
-  e.app.save(record);
+  try { e.app.save(record); } catch (error) { return e.json(422, { message: String(error), stage: "save_fission_record" }); }
   return e.json(201, { id: record.id, created: record.getString("created") });
 });
 
@@ -558,6 +557,7 @@ routerAdd("POST", "/api/lumina/material-library-assets/{id}/prompt-versions", (e
   const kind = String(body.kind || "");
   const field = {
     script: "scriptVersions",
+    replication_script: "replicationScriptVersions",
     narration_script: "narrationScriptVersions",
     preface_fission: "fissionVersions",
     narration_fission: "narrationFissionVersions",

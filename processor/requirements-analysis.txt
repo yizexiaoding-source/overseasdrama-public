@@ -1,5 +1,7 @@
 # Install only on analysis workers; web workers do not need these heavy packages.
 faster-whisper>=1.1,<2
+# faster-whisper 1.2.1 is incompatible with the metadata API removed in PyAV 19.
+av<19
 pillow>=10.4,<13
 paddleocr>=2.9,<4
 paddlepaddle>=2.6,<4

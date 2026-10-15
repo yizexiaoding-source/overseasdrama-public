@@ -118,6 +118,21 @@ test("生成与输出阶段提供稳定加载、复制和对白语种切换", as
   assert.match(storyboardRoute, /dialogueLanguage/);
 });
 
+test("脚本、分镜重试和语种切换按任务键独立保留加载动画", async () => {
+  const [workflow, workspace] = await Promise.all([
+    read("app/features/preface-creative/PrefacePlanningWorkflow.tsx"),
+    read("app/features/preface-creative/PrefaceCreativeWorkspace.tsx"),
+  ]);
+  assert.match(workspace, /activeActionKeysRef/);
+  assert.match(workspace, /beginAction\(actionKey\)/);
+  assert.match(workspace, /endAction\(actionKey\)/);
+  assert.match(workspace, /storyboard-language:\$\{idea\.id\}:\$\{language\}/);
+  assert.match(workflow, /activeScriptCandidateIds\.map/);
+  assert.match(workflow, /activeStoryboardIdeaIds\.map/);
+  assert.match(workflow, /activeLanguageActions\.map/);
+  assert.match(workflow, /ideaIsGenerating\(idea\)/);
+  assert.doesNotMatch(workspace, /setCandidateActionBusy/);
+});
 test("前贴脚本与分镜共同执行 TikTok 身体距离安全合同", async () => {
   const [scriptRoute, storyboardRoute, safety] = await Promise.all([
     read("app/api/preface-creative/script/route.ts"),

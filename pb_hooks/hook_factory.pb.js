@@ -48,8 +48,10 @@ routerAdd("POST", "/api/lumina/hooks/{id}/review", (e) => {
     const decision = String(body.decision || "");
     if (!["approve_boundaries", "reject_boundaries"].includes(decision))
       throw new BadRequestError("invalid boundary review decision");
-    const note = String(body.note || "").trim();
-    if (!note) throw new BadRequestError("boundary review note is required");
+    const suppliedNote = String(body.note || "").trim();
+    const note = suppliedNote || (decision === "approve_boundaries"
+      ? "人工确认边界通过"
+      : "人工驳回边界");
     if (decision === "approve_boundaries") {
       const reviewedStart =
         body.start_seconds == null

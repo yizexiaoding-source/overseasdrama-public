@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { validatePromptFissionResult } from "../../lib/prompt-fission-domain";
+import { creativeMechanisms, validatePromptFissionResult } from "../../lib/prompt-fission-domain";
 import { pocketBaseFileUrl, type QwenContentPart } from "../../lib/prompt-fission-multimodal";
 import { prepareQwenVideoInput } from "../../lib/qwen-video-input";
 import { savePromptVersion } from "../../lib/prompt-version-server";
+import { modelFetch } from "../../lib/server/model-request";
 
 export const runtime = "nodejs";
 
@@ -150,8 +151,8 @@ V0 忠实复刻原结构。V1—V5 必须各自是完整、可拍摄的前贴：
   const isResponses = endpoint.replace(/\/$/, "").endsWith("/responses");
   const requestBody = isResponses
     ? { model, max_output_tokens: FISSION_MAX_TOKENS, input: [{ role: "system", content: [{ type: "input_text", text: instruction }] }, { role: "user", content: parts.map(responsePart) }] }
-    : { model, max_tokens: FISSION_MAX_TOKENS, stream: false, messages: [{ role: "system", content: instruction }, { role: "user", content: parts }], response_format: { type: "json_object" } };
-  const response = await fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+    : { model, max_tokens: FISSION_MAX_TOKENS, stream: false, ...(endpoint.includes("dashscope") ? { enable_thinking: false } : {}), messages: [{ role: "system", content: instruction }, { role: "user", content: parts }], response_format: { type: "json_object" } };
+  const response = await modelFetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(requestBody), signal: AbortSignal.timeout(480_000) });
   if (!response.ok) {
     const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 500);
     throw new Error(`模型服务请求失败（HTTP ${response.status}）${detail ? `：${detail}` : ""}`);
@@ -160,13 +161,13 @@ V0 忠实复刻原结构。V1—V5 必须各自是完整、可拍摄的前贴：
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   try {
     const body = object(await request.json());
     const assetId = String(body.assetId || "").trim();
-    const locked = strings(body.preservedMechanisms);
+    const locked = creativeMechanisms(strings(body.preservedMechanisms));
     const settings = normalizeSettings(body);
     if (!assetId) throw new RequestError("缺少 AI 前贴资产", 400);
-    if (!locked.length) throw new RequestError("原前贴缺少可锁定的钩子机制", 400);
     const response = await fetch(`${PB_URL}/api/collections/material_library_assets/records/${encodeURIComponent(assetId)}`, { cache: "no-store" });
     if (!response.ok) throw new RequestError("找不到 AI 前贴资产", 404);
     const asset = object(await response.json());
@@ -193,7 +194,7 @@ export async function POST(request: Request) {
     let generated: Awaited<ReturnType<typeof generatePlan>> | undefined;
     let validated: ReturnType<typeof validatePromptFissionResult> | undefined;
     let lastError: unknown;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 1; attempt++) {
       try {
         generated = await generatePlan(context, locked, settings, visualInput);
         validated = validatePromptFissionResult(generated.value, locked);
@@ -201,11 +202,19 @@ export async function POST(request: Request) {
       } catch (error) { lastError = error; }
     }
     if (!generated || !validated) throw lastError instanceof Error ? lastError : new Error("前贴裂变结果校验失败");
+    if (!validated.variants.length && !validated.baseline.prompt) throw new RequestError("模型未返回可展示内容，请重试", 422);
     const dimensions = [...new Set(validated.variants.map((item) => item.changedDimension))];
-    const persist = await fetch(`${PB_URL}/api/lumina/prompt-fission-plans`, { method: "POST", headers: { "Content-Type": "application/json", "X-Lumina-Ui": "local" }, body: JSON.stringify({ source_asset: assetId, preserved_mechanisms: locked, variable_dimensions: dimensions, variants: validated.variants, model: generated.model, schema_version: "prompt-fission-v5-story-engines", status: "succeeded" }) });
-    const stored = object(await persist.json().catch(() => ({})));
-    if (!persist.ok) throw new Error(String(stored.message || "裂变方案保存失败"));
-    const savedPlan = await savePromptVersion(PB_URL, assetId, "preface_fission", {
+    let stored: Record<string, unknown> = {};
+    if (validated.variants.length) {
+      try {
+        const persist = await fetch(`${PB_URL}/api/lumina/prompt-fission-plans`, { method: "POST", headers: { "Content-Type": "application/json", "X-Lumina-Ui": "local" }, body: JSON.stringify({ source_asset: assetId, preserved_mechanisms: locked, variable_dimensions: dimensions, variants: validated.variants, model: generated.model, schema_version: "prompt-fission-v5-story-engines", status: "succeeded" }), signal: AbortSignal.timeout(15_000) });
+        stored = object(await persist.json().catch(() => ({})));
+        if (!persist.ok) throw new Error(String(stored.message || "方案索引保存失败"));
+      } catch (error) {
+        validated.failures.push(`方案索引未保存：${error instanceof Error ? error.message : String(error)}。生成内容仍可查看。`);
+      }
+    }
+    const plan = {
       id: String(stored.id || `fission-${Date.now()}`),
       sourceAssetId: assetId,
       preservedMechanisms: locked,
@@ -214,13 +223,22 @@ export async function POST(request: Request) {
       sourceDiagnosis: validated.sourceDiagnosis,
       baseline: validated.baseline,
       variants: validated.variants,
+      failures: validated.failures,
+      rawResult: validated.failures.length ? JSON.stringify(generated.value, null, 2) : undefined,
       targetMapping: validated.targetMapping,
       handoff: validated.handoff,
       model: generated.model,
       status: "succeeded",
-    });
-    return NextResponse.json(savedPlan);
+    };
+    try {
+      const savedPlan = await savePromptVersion(PB_URL, assetId, "preface_fission", plan);
+      return NextResponse.json(savedPlan);
+    } catch (error) {
+      return NextResponse.json({ ...plan, version: 0, createdAt: new Date().toISOString(), failures: [...plan.failures, `历史版本未保存：${error instanceof Error ? error.message : String(error)}。请复制或下载当前结果。`] });
+    }
   } catch (error) {
+    console.error("[prompt-fission] failed", { elapsedMs: Date.now() - startedAt, name: error instanceof Error ? error.name : "UnknownError", message: error instanceof Error ? error.message : String(error) });
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) return NextResponse.json({ message: "模型响应超过8分钟，已停止等待。本次未收到可解析的完整结果，请重试。" }, { status: 504 });
     const status = error instanceof RequestError ? error.status : 500;
     return NextResponse.json({ message: error instanceof Error ? error.message : "前贴裂变提示词生成失败" }, { status });
   }

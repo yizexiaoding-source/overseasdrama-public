@@ -2979,19 +2979,19 @@ function HookReview({
           </span>
         </div>
         <label className={styles.reviewNote}>
-          复核依据
+          复核依据（选填）
           <textarea
             className="resize-none"
             style={{ resize: "none" }}
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            placeholder="说明对白、动作、镜头是否完整，以及调整边界的依据"
+            placeholder="可选：说明对白、动作、镜头是否完整，以及调整边界的依据"
           />
         </label>
         <div className={styles.reviewActions}>
           <button
             type="button"
-            disabled={saving || !note.trim()}
+            disabled={saving}
             onClick={() => void submit("rejected")}
           >
             驳回钩子
@@ -3001,7 +3001,6 @@ function HookReview({
             className={styles.primary}
             disabled={
               saving ||
-              !note.trim() ||
               reviewStart < 0 ||
               reviewEnd <= reviewStart ||
               reviewEnd - reviewStart < 5 ||

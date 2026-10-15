@@ -18,6 +18,7 @@ import {
 import styles from "./InspirationWorkspace.module.css";
 import { SHORT_DRAMA_GENRES } from "../../lib/short-drama-taxonomy";
 import { buildPrefaceAnalysisView } from "../../lib/preface-analysis-view-model";
+import { creativeMechanisms } from "../../lib/prompt-fission-domain";
 
 type LibraryKind = "ai_preface" | "narration";
 type Props = {
@@ -794,16 +795,16 @@ export function LibraryAnalysisPage({
     setFissionError("");
     try {
       if (isPreface) {
-        const mechanisms = asset.hitReasons.map((reason) => String(reason.reason || "")).filter(Boolean);
+        const mechanisms = creativeMechanisms(asset.hitReasons.map((reason) => String(reason.reason || "")));
         const plan = await createPromptFission(
           asset.id,
-          mechanisms.length ? mechanisms.slice(0, 3) : ["保留原前贴的首帧异常与悬念"],
+          mechanisms.slice(0, 3),
           [fissionSettings.primaryDirection, fissionSettings.secondaryDirection],
           fissionSettings,
         );
         setFissionPlan(plan);
         setFissionVersions((current) => [...current.filter((item) => item.id !== plan.id), plan].slice(-10));
-        flash(`已生成并保存 V${plan.version}：V0 + 15 组前贴剧情分支`);
+        flash(`已生成${plan.version ? `并保存 V${plan.version}` : "（尚未保存）"}：${plan.variants.length} 组前贴剧情分支`);
       } else {
         const plan = await createNarrationFission(asset.id, narrationSettings);
         setNarrationPlan(plan);
