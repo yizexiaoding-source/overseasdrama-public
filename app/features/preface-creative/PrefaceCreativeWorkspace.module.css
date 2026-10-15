@@ -236,7 +236,7 @@
 .secondaryButton { min-height: 32px; border: 1px solid #cbd9e8; border-radius: 7px; background: #fff; color: #1769e0; padding: 0 11px; font-size: 10px; cursor: pointer; }
 .generationActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .streamProgress { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 9px 0 0; color: #607a95; font-size: 10px; line-height: 1.5; }
-.streamSpinner { width: 11px; height: 11px; flex: 0 0 11px; border: 2px solid #c9dbef; border-top-color: #1769e0; border-radius: 50%; animation: lumina-spin .8s linear infinite; }
+.streamSpinner { display: inline-block; width: 11px; height: 11px; flex: 0 0 11px; margin-right: 5px; border: 2px solid #c9dbef; border-top-color: #1769e0; border-radius: 50%; vertical-align: -2px; animation: lumina-spin .8s linear infinite; }
 .streamSpinner + b { color: #1769e0; }
 @keyframes lumina-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .streamSpinner { animation: none; border-top-color: #1769e0; } }

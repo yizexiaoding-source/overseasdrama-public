@@ -162,7 +162,7 @@ export default function PrefaceCreativeWorkspace({ mode, onModeChange, onNotify,
   const [recommendedTags, setRecommendedTags] = useState<CreativeTag[]>([]);
   const [tagBusy, setTagBusy] = useState(false);
   const [generationProgress, setGenerationProgress] = useState({ completed: 0, total: 24, stage: "" });
-  const [candidateActionBusy, setCandidateActionBusy] = useState("");
+  const [activeActionKeys, setActiveActionKeys] = useState<string[]>([]);
   const [batchScriptProgress, setBatchScriptProgress] = useState({ completed: 0, total: 0, failed: 0 });
   const [batchScriptFailures, setBatchScriptFailures] = useState<Array<{ candidateId: string; title: string; stage: "script" | "storyboard"; message: string }>>([]);
   const [storyboardLanguage, setStoryboardLanguage] = useState<"英语" | "葡萄牙语" | "西班牙语">("英语");
@@ -173,6 +173,27 @@ export default function PrefaceCreativeWorkspace({ mode, onModeChange, onNotify,
   const generationAbortReasonRef = useRef<"task-change" | null>(null);
   const ideasRef = useRef(ideas);
 
+  const activeActionKeysRef = useRef(new Set<string>());
+
+  const beginAction = (key: string) => {
+    if (activeActionKeysRef.current.has(key)) return false;
+    const next = new Set(activeActionKeysRef.current);
+    next.add(key);
+    activeActionKeysRef.current = next;
+    setActiveActionKeys([...next]);
+    return true;
+  };
+  const endAction = (key: string) => {
+    if (!activeActionKeysRef.current.has(key)) return;
+    const next = new Set(activeActionKeysRef.current);
+    next.delete(key);
+    activeActionKeysRef.current = next;
+    setActiveActionKeys([...next]);
+  };
+  const resetActions = () => {
+    activeActionKeysRef.current = new Set();
+    setActiveActionKeys([]);
+  };
   useEffect(() => { ideasRef.current = ideas; }, [ideas]);
   useEffect(() => {
     if (!resumeFavorite) return;
@@ -208,7 +229,7 @@ export default function PrefaceCreativeWorkspace({ mode, onModeChange, onNotify,
     generationAbortRef.current?.abort();
     if (taskChanged) setRecommendedTags([]);
     setCandidates([]);
-    setCandidateActionBusy("");
+    resetActions();
     setBatchScriptProgress({ completed: 0, total: 0, failed: 0 });
     setBatchScriptFailures([]);
     setGenerationProgress({ completed: 0, total: 24, stage: taskChanged ? "创作任务已更新，请重新匹配内容标签。" : "钩子方向已更新，请重新生成创意候选。" });
@@ -314,7 +335,9 @@ export default function PrefaceCreativeWorkspace({ mode, onModeChange, onNotify,
     });
   };
   const generateCandidateBranches = async (candidate: PrefaceCreativeCandidate, branchSpecs?: PrefaceBranchSpec[]) => {
-    setCandidateActionBusy(`branch:${candidate.id}`); setError("");
+    const actionKey = `branch:${candidate.id}`;
+    if (!beginAction(actionKey)) throw new Error("该候选的变体正在生成，请等待当前任务完成。");
+    setError("");
     try {
       const response = await fetch("/api/preface-creative/branches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidate, locks: candidate.locks, input, branchSpecs }) });
       const payload = await response.json() as { candidates?: unknown; message?: string };
@@ -323,7 +346,7 @@ export default function PrefaceCreativeWorkspace({ mode, onModeChange, onNotify,
       onNotify?.(`已生成 ${branches.length} 个创意分支`);
       return branches;
     } catch (reason) { const message = generationFailure(reason, "创意分支生成失败"); setError(message); onNotify?.(message); throw new Error(message); }
-    finally { setCandidateActionBusy(""); }
+    finally { endAction(actionKey); }
   };
   const commitIdeas = (update: (current: PrefaceCreativeIdea[]) => PrefaceCreativeIdea[]) => {
     const next = update(ideasRef.current);
@@ -356,20 +379,24 @@ export default function PrefaceCreativeWorkspace({ mode, onModeChange, onNotify,
     return completed;
   };
   const generateCandidateScript = async (candidate: PrefaceCreativeCandidate) => {
-    setCandidateActionBusy(`script:${candidate.id}`); setError("");
+    const actionKey = `script:${candidate.id}`;
+    if (!beginAction(actionKey)) throw new Error("该候选的脚本与分镜正在生成，请等待当前任务完成。");
+    setError("");
     try {
       const idea = await requestCandidateScript(candidate);
       onNotify?.(idea.storyboardScript ? "前贴脚本与分镜脚本已生成" : "前贴脚本已生成；分镜可单独重试");
       return idea;
     } catch (reason) { const message = generationFailure(reason, "完整脚本生成失败"); setError(message); throw new Error(message); }
-    finally { setCandidateActionBusy(""); }
+    finally { endAction(actionKey); }
   };
   const generateCandidateScripts = async (selectedCandidates: PrefaceCreativeCandidate[]) => {
     const queue = selectedCandidates.slice(0, 10);
     const ideas: PrefaceCreativeIdea[] = [];
     const failedIds: string[] = [];
     const failures: Array<{ candidateId: string; title: string; stage: "script" | "storyboard"; message: string }> = [];
-    setCandidateActionBusy("script-batch"); setError(""); setBatchScriptProgress({ completed: 0, total: queue.length, failed: 0 });
+    const actionKey = "script-batch";
+    if (!beginAction(actionKey)) throw new Error("批量脚本任务正在生成，请等待当前任务完成。");
+    setError(""); setBatchScriptProgress({ completed: 0, total: queue.length, failed: 0 });
     setBatchScriptFailures([]);
     try {
       let completed = 0;
@@ -390,27 +417,31 @@ export default function PrefaceCreativeWorkspace({ mode, onModeChange, onNotify,
       if (ideas.length) onNotify?.(`已生成 ${ideas.length}/${queue.length} 条脚本，其中 ${completeCount} 条含完整分镜`);
       if (failures.length) setError(`${failures.length} 项生成未完成，请在脚本记录中查看原因并重试。`);
       return { ideas, failedIds, failures };
-    } finally { setCandidateActionBusy(""); }
+    } finally { endAction(actionKey); }
   };
   const generateCandidateStoryboard = async (idea: PrefaceCreativeIdea) => {
-    setCandidateActionBusy(`storyboard:${idea.id}`); setError("");
+    const actionKey = `storyboard:${idea.id}`;
+    if (!beginAction(actionKey)) throw new Error("该记录的分镜正在生成，请等待当前任务完成。");
+    setError("");
     try {
       const completed = await requestCandidateStoryboard(idea);
       onNotify?.("分镜脚本已生成");
       return completed;
     } catch (reason) { const message = generationFailure(reason, "分镜脚本生成失败"); setError(message); throw new Error(message); }
-    finally { setCandidateActionBusy(""); }
+    finally { endAction(actionKey); }
   };
   const switchStoryboardLanguage = async (idea: PrefaceCreativeIdea, language: "英语" | "葡萄牙语" | "西班牙语") => {
     setStoryboardLanguage(language);
     const key = `${idea.id}:${language}`;
     if (storyboardVariants[key]) return;
-    setCandidateActionBusy(`storyboard-language:${idea.id}`); setError("");
+    const actionKey = `storyboard-language:${idea.id}:${language}`;
+    if (!beginAction(actionKey)) return;
+    setError("");
     try {
       const localized = await requestCandidateStoryboard(idea, language);
       setStoryboardVariants((current) => ({ ...current, [key]: localized.storyboardScript || "" }));
     } catch (reason) { setError(generationFailure(reason, "分镜对白切换失败")); }
-    finally { setCandidateActionBusy(""); }
+    finally { endAction(actionKey); }
   };
   const saveIdea = async (idea: PrefaceCreativeIdea) => {
     setError("");
@@ -449,7 +480,7 @@ export default function PrefaceCreativeWorkspace({ mode, onModeChange, onNotify,
 
   return <section className={styles.workspace} aria-label="AI前贴创意">
     {error && <div className={styles.error} role="alert"><b>本次操作未完成</b><span>{error}</span></div>}
-    {mode === "planning" && <PrefacePlanningWorkflow input={input} ideas={ideas.filter((idea) => !idea.taskKey || idea.taskKey === prefaceTaskKey(input))} candidates={candidates} recommendedTags={recommendedTags} busy={busy} candidateActionBusy={candidateActionBusy} batchScriptProgress={batchScriptProgress} batchScriptFailures={batchScriptFailures} favoriteIds={prefaceFavorites.map((item) => item.id)} resumeCandidateId={resumeCandidateId} tagBusy={tagBusy} generationProgress={generationProgress} planningRevision={planningRevision} storyboardLanguage={storyboardLanguage} storyboardVariants={storyboardVariants} onStoryboardLanguageChange={switchStoryboardLanguage} onInput={updatePlanningInput} onRecommendTags={recommendTags} onGenerate={generateIdeas} onStopGeneration={stopGeneration} onUpdateCandidateLocks={updateCandidateLocks} onGenerateBranches={generateCandidateBranches} onGenerateScript={generateCandidateScript} onGenerateScripts={generateCandidateScripts} onGenerateStoryboard={generateCandidateStoryboard} onToggleFavorite={togglePrefaceFavorite} onSave={saveIdea} onReplicate={sendIdeaToReplicate} onNotify={onNotify} />}
+    {mode === "planning" && <PrefacePlanningWorkflow input={input} ideas={ideas.filter((idea) => !idea.taskKey || idea.taskKey === prefaceTaskKey(input))} candidates={candidates} recommendedTags={recommendedTags} busy={busy} activeActionKeys={activeActionKeys} batchScriptProgress={batchScriptProgress} batchScriptFailures={batchScriptFailures} favoriteIds={prefaceFavorites.map((item) => item.id)} resumeCandidateId={resumeCandidateId} tagBusy={tagBusy} generationProgress={generationProgress} planningRevision={planningRevision} storyboardLanguage={storyboardLanguage} storyboardVariants={storyboardVariants} onStoryboardLanguageChange={switchStoryboardLanguage} onInput={updatePlanningInput} onRecommendTags={recommendTags} onGenerate={generateIdeas} onStopGeneration={stopGeneration} onUpdateCandidateLocks={updateCandidateLocks} onGenerateBranches={generateCandidateBranches} onGenerateScript={generateCandidateScript} onGenerateScripts={generateCandidateScripts} onGenerateStoryboard={generateCandidateStoryboard} onToggleFavorite={togglePrefaceFavorite} onSave={saveIdea} onReplicate={sendIdeaToReplicate} onNotify={onNotify} />}
     {mode === "replicate" && <div className={styles.replicationWorkspace}>
       {!template && <ReplicationLibrary assets={assets} onUse={(asset) => { setTemplateId(asset.id); setReplicatePlan(null); setReplicationBrief(""); setReplicationSupplement(""); setError(""); }} onReloadAssets={async () => { const next = await listMaterialLibraryAssets("ai_preface"); setAssets(next); return next; }} />}
       {template && !replicatePlan && <section className={styles.replicationInput}><header className={styles.replicationSelected}><div><span className={styles.eyebrow}>STEP 2 · NEW STORY</span><h2>输入新的剧情简介</h2><p>系统会保留母版的观看承诺和动作因果，再结合你的新剧情生成复刻创意。</p></div><button type="button" className={styles.secondaryButton} onClick={() => setTemplateId("")}>重新选择母版</button></header><div className={styles.selectedTemplate}><span>当前母版</span><strong>{template.title}</strong><small>{template.genres.join("、") || "AI前贴"} · {Math.max(1, Math.round(template.clipEnd - template.clipStart))} 秒</small></div><label className={styles.longField}><span>新剧情简介 <em>*</em></span><textarea className={styles.synopsisField} value={replicationBrief} onChange={(event) => { setReplicationBrief(event.target.value); setReplicatePlan(null); }} placeholder="输入新的剧情简介、人物关系和主要冲突" /><small>必填。人物名称会沿用你提供的简介，不会自动翻译。</small></label><label className={styles.longField}><span>补充要求（可选）</span><textarea className={styles.synopsisField} value={replicationSupplement} onChange={(event) => { setReplicationSupplement(event.target.value); setReplicatePlan(null); }} placeholder="例如：突出身份反转；避免屏幕文字；对白使用英语" /></label><label className={styles.modelSelect}><span>生成模型</span><select value={input.modelProvider} onChange={(event) => setInput((current) => ({ ...current, modelProvider: event.target.value }))}><option value="qwen">Qwen</option><option value="gemini">Gemini</option><option value="deepseek">DeepSeek</option><option value="doubao">豆包</option></select><small>模型只影响本次复刻生成，不会修改前贴创意策划任务。</small></label><div className={styles.stageFooter}><span>母版机制由AI自动提取，用户无需配置故事引擎。</span><button className={styles.primary} disabled={busy || !replicationBrief.trim()} onClick={() => void generateReplication()}>{busy ? "正在生成复刻创意…" : "结合母版生成前贴创意"}</button></div></section>}
